@@ -1,0 +1,79 @@
+name: 'Delete package'
+description: 'Delete package'
+
+inputs:
+  token:
+    description: 'PAT'
+    required: true
+  packageType:
+    description: 'Package type'
+    required: true
+    default: 'npm'
+  package:
+    description: 'Package name'
+    required: true
+  version:
+    description: 'Package version name，ex: 1.0.0'
+    required: false
+  versionId:
+    description: 'Package version id'
+    required: false
+  organization:
+    description: 'Organization'
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    - id: qpvId
+      if: inputs.version != '' || inputs.versionId != ''
+      name: Query Package Version ID
+      shell: bash
+      run: |
+        # Query Package Version ID
+        if [ ! -z "${{ inputs.versionId }}" ]; then
+          echo "id=${{ inputs.versionId }}" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
+        if [ -z "${{ inputs.organization }}" ]; then
+          RESULT=`curl -sS "${GITHUB_API_URL}/user/packages/${{ inputs.packageType }}/${{ inputs.package }}/versions" -H "Authorization: Bearer ${{ inputs.token }}"`
+        else
+          RESULT=`curl -sS "${GITHUB_API_URL}/orgs/${{ inputs.organization }}/packages/${{ inputs.packageType }}/${{ inputs.package }}/versions" -H "Authorization: Bearer ${{ inputs.token }}"`
+        fi
+
+        d=`echo "$RESULT" | jq -r '.[] | select(.name == "${{ inputs.version }}") | "id=\"" + (.id | tostring) + "\"\nname=\"" + .name + "\""'`
+
+        eval $d
+
+        if [ -z "$id" ]; then
+          echo "Package or Version not found"
+          echo "$RESULT"
+          exit
+        fi
+
+        echo "id=$id" >> $GITHUB_OUTPUT
+    - name: Delete user's package
+      if: inputs.organization == '' && steps.qpvId.outputs.id == ''
+      shell: bash
+      run: |
+        # Delete user's package
+        curl -sSX DELETE "${GITHUB_API_URL}/user/packages/${{ inputs.packageType }}/${{ inputs.package }}" -H "Authorization: Bearer ${{ inputs.token }}"
+    - name: Delete user's package version
+      if: inputs.organization == '' && steps.qpvId.outputs.id != ''
+      shell: bash
+      run: |
+        # Delete user's package version
+        curl -sSX DELETE "${GITHUB_API_URL}/user/packages/${{ inputs.packageType }}/${{ inputs.package }}/versions/${{ steps.qpvId.outputs.id }}" -H "Authorization: Bearer ${{ inputs.token }}"
+    - name: Delete organization package
+      if: inputs.organization != '' && steps.qpvId.outputs.id == ''
+      shell: bash
+      run: |
+        # Delete organization's package
+        curl -sSX DELETE "${GITHUB_API_URL}/orgs/${{ inputs.organization }}/packages/${{ inputs.packageType }}/${{ inputs.package }}" -H "Authorization: Bearer ${{ inputs.token }}"
+    - name: Delete organization's package version
+      if: inputs.organization != '' && steps.qpvId.outputs.id != ''
+      shell: bash
+      run: |
+        # Delete organization's package version
+        curl -sSX DELETE "${GITHUB_API_URL}/orgs/${{ inputs.organization }}/packages/${{ inputs.packageType }}/${{ inputs.package }}/versions/${{ steps.qpvId.outputs.id }}" -H "Authorization: Bearer ${{ inputs.token }}"
